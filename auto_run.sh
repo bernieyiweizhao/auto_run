@@ -2,10 +2,8 @@
 
 #place this script in the output directory of sequencing run
 
-#modify the next 3 lines
-mkfastqID="20180427SC" #id for cellranger mkfastq output
-countGenome="/brcwork/sequence/10x_data/BernieWorkingDirectory/ws20171118ElenaGenome/" #path to the transcriptome for cellranger count
-samplesheet="samplesheet20180426.csv" #name of the sample sheet file
+mkfastqID=$1 #id for cellranger mkfastq output
+samplesheet=$2 #name of the sample sheet file
 
 bcl=$(pwd)
 RTAcomplete="RTAComplete.txt"
@@ -27,7 +25,13 @@ export PATH=$PATH:/brcwork/sequence/cellranger-2.1.1
 export SGE_CLUSTER_NAME=brclogin1.cm.cluster
 
 #run mkfastq
-cellranger mkfastq --id=$mkfastqID --run=$bcl --samplesheet=$samplesheet --jobmode=sge --maxjobs=100
+first_col=$(grep -A 1 '\[Data]' $samplesheet|tail -1|awk -F ',' '{print $1}')
+
+if [ $fist_col = Lane ]; then   
+  cellranger mkfastq --id=$mkfastqID --run=$bcl --samplesheet=$samplesheet --jobmode=sge --maxjobs=100 --lanes=1,2,3,4
+else
+  cellranger mkfastq --id=$mkfastqID --run=$bcl --samplesheet=$samplesheet --jobmode=sge --maxjobs=100
+fi
 
 #directory of count job output
 progress="count_progress"
@@ -38,11 +42,15 @@ grep -A $(wc -l $samplesheet|awk '{print $1}') '\[Data]' $samplesheet|tail -n+3|
   line=$(echo "$line"|tr -d '\r')
   fastq=$(echo $line|awk -F ',' '{print $1}')
   project=$(echo $line|awk -F ',' '{print $7}')
+  countGenome=$(echo $line|awk -F ',' '{print $8}')
   curr=$(pwd)
   fastq_path="$curr/$mkfastqID/outs/fastq_path/$project/$fastq"
   countID="${project}__${fastq}"
   echo "cellranger count --id=$countID --transcriptome=$countGenome --fastqs=$fastq_path --jobmode=sge --maxjobs=100"
   output="$curr/$progress/$countID.output.txt"
   error="$curr/$progress/$countID.error.txt"
-  echo "cellranger count --id=$countID --transcriptome=$countGenome --fastqs=$fastq_path --jobmode=sge --maxjobs=100"|qsub -N $countID -o $output -e $error
+  echo "cellranger count --id=$countID --transcriptome=$countGenome --fastqs=$fastq_path --jobmode=sge --maxjobs=100"|qsub -N $countID -l h_vmem=6G,mem_free=6G -o $output -e $error
+  if [ $first_col = Lane ]; then
+    break
+  fi
 done
