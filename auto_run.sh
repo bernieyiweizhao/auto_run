@@ -25,13 +25,19 @@ export PATH=$PATH:/brcwork/sequence/cellranger-2.1.1
 export SGE_CLUSTER_NAME=brclogin1.cm.cluster
 
 #run mkfastq
-first_col=$(grep -A 1 '\[Data]' $samplesheet|tail -1|awk -F ',' '{print $1}')
+echo "cellranger mkfastq --id=$mkfastqID --run=$bcl --samplesheet=$samplesheet --jobmode=sge --maxjobs=100"|qsub -N "mkfastq_$mkfastqID"  -l h_vmem=6G,mem_free=6G
 
-if [ $fist_col = Lane ]; then   
-  cellranger mkfastq --id=$mkfastqID --run=$bcl --samplesheet=$samplesheet --jobmode=sge --maxjobs=100 --lanes=1,2,3,4
-else
-  cellranger mkfastq --id=$mkfastqID --run=$bcl --samplesheet=$samplesheet --jobmode=sge --maxjobs=100
-fi
+mkfastq_complete="$mkfastqID/_vdrkill"
+while true; do
+  if [ -f $mkfastq_complete ]; then
+    echo "[$(date)] mkfastq complete"
+    sleep 5m
+    break
+  else
+    echo "[$(date)] Running mkfastq"
+  fi
+  sleep 5m
+done
 
 #directory of count job output
 progress="count_progress"
@@ -49,8 +55,5 @@ grep -A $(wc -l $samplesheet|awk '{print $1}') '\[Data]' $samplesheet|tail -n+3|
   echo "cellranger count --id=$countID --transcriptome=$countGenome --fastqs=$fastq_path --jobmode=sge --maxjobs=100"
   output="$curr/$progress/$countID.output.txt"
   error="$curr/$progress/$countID.error.txt"
-  echo "cellranger count --id=$countID --transcriptome=$countGenome --fastqs=$fastq_path --jobmode=sge --maxjobs=100"|qsub -N $countID -l h_vmem=6G,mem_free=6G -o $output -e $error
-  if [ $first_col = Lane ]; then
-    break
-  fi
+  echo "cellranger count --id=$countID --transcriptome=$countGenome --fastqs=$fastq_path --jobmode=sge --maxjobs=100"|qsub -N "count_$countID" -l h_vmem=6G,mem_free=6G -o $output -e $error
 done
