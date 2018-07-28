@@ -25,13 +25,23 @@ export PATH=$PATH:/brcwork/sequence/cellranger-2.1.1
 export SGE_CLUSTER_NAME=brclogin1.cm.cluster
 
 #run mkfastq
-echo "cellranger mkfastq --id=$mkfastqID --run=$bcl --samplesheet=$samplesheet --jobmode=sge --maxjobs=100"|qsub -N "mkfastq_$mkfastqID"  -l h_vmem=6G,mem_free=6G
+col_names=$(grep -A 1 '\[Data]' $samplesheet|tail -1)
+first_col=$(echo $col_names| awk -F ',' '{print $1}')
 
+if [ $first_col = Lane ]; then
+  echo "cellranger mkfastq --id=$mkfastqID --run=$bcl --samplesheet=$samplesheet --jobmode=sge --maxjobs=100 --lanes=1,2,3,4"
+  echo "cellranger mkfastq --id=$mkfastqID --run=$bcl --samplesheet=$samplesheet --jobmode=sge --maxjobs=100 --lanes=1,2,3,4"|qsub -N "mkfastq_$mkfastqID"  -l h_vmem=6G,mem_free=6G
+else
+  echo "cellranger mkfastq --id=$mkfastqID --run=$bcl --samplesheet=$samplesheet --jobmode=sge --maxjobs=100"
+  echo "cellranger mkfastq --id=$mkfastqID --run=$bcl --samplesheet=$samplesheet --jobmode=sge --maxjobs=100"|qsub -N "mkfastq_$mkfastqID"  -l h_vmem=6G,mem_free=6G
+fi
+
+#check for mkfastq completion
 mkfastq_complete="$mkfastqID/_vdrkill"
 while true; do
   if [ -f $mkfastq_complete ]; then
     echo "[$(date)] mkfastq complete"
-    sleep 5m
+    sleep 30
     break
   else
     echo "[$(date)] Running mkfastq"
@@ -44,6 +54,21 @@ progress="count_progress"
 mkdir $progress
 
 #run count
+if [ $first_col = Lane ]; then
+
+  line=$(grep -A 2 '\[Data]' $samplesheet|tail -1|tr -d '\r')
+  fastq=$(echo $line|awk -F ',' '{print $2}')
+  countGenome=$(echo $line|awk -F ',' '{print $9}')
+  curr=$(pwd)
+  fastq_path="$curr/$mkfastqID/outs/fastq_path/"
+  countID=$fastq
+  echo "cellranger count --id=$countID --transcriptome=$countGenome --fastqs=$fastq_path --jobmode=sge --maxjobs=100"
+  output="$curr/$progress/$countID.output.txt"
+  error="$curr/$progress/$countID.error.txt"
+  echo "cellranger count --id=$countID --transcriptome=$countGenome --fastqs=$fastq_path --jobmode=sge --maxjobs=100"|qsub -N "count_$countID" -l h_vmem=6G,mem_free=6G -o $output -e $error
+
+else
+
 grep -A $(wc -l $samplesheet|awk '{print $1}') '\[Data]' $samplesheet|tail -n+3|while read line; do
   line=$(echo "$line"|tr -d '\r')
   fastq=$(echo $line|awk -F ',' '{print $1}')
@@ -57,3 +82,5 @@ grep -A $(wc -l $samplesheet|awk '{print $1}') '\[Data]' $samplesheet|tail -n+3|
   error="$curr/$progress/$countID.error.txt"
   echo "cellranger count --id=$countID --transcriptome=$countGenome --fastqs=$fastq_path --jobmode=sge --maxjobs=100"|qsub -N "count_$countID" -l h_vmem=6G,mem_free=6G -o $output -e $error
 done
+
+fi
