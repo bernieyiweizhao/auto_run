@@ -21,7 +21,7 @@ done
 
 #set environment variables
 export PATH=$PATH:/brcwork/bioinf/tools/bcl2fastq-2.20/bin
-export PATH=$PATH:/brcwork/sequence/cellranger-2.1.1
+export PATH=$PATH:/brcwork/sequence/cellranger-2.2.0
 export SGE_CLUSTER_NAME=brclogin1.cm.cluster
 
 #run mkfastq
