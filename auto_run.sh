@@ -34,12 +34,13 @@ col_names=$(grep -A 1 '\[Data]' $samplesheet|tail -1)
 first_col=$(echo $col_names| awk -F ',' '{print $1}')
 
 if [ $first_col = Lane ]; then
-  echo "cellranger mkfastq --id=$mkfastqID --run=$bcl --samplesheet=$samplesheet --jobmode=sge --maxjobs=100 --lanes=1,2,3,4"
-  echo "cellranger mkfastq --id=$mkfastqID --run=$bcl --samplesheet=$samplesheet --jobmode=sge --maxjobs=100 --lanes=1,2,3,4"|qsub -N "mkfastq_$mkfastqID"  -l h_vmem=6G,mem_free=6G
+  command="cellranger mkfastq --id=$mkfastqID --run=$bcl --samplesheet=$samplesheet --localmem=64 --localcores=8 --lanes=1,2,3,4"
 else
-  echo "cellranger mkfastq --id=$mkfastqID --run=$bcl --samplesheet=$samplesheet --jobmode=sge --maxjobs=100"
-  echo "cellranger mkfastq --id=$mkfastqID --run=$bcl --samplesheet=$samplesheet --jobmode=sge --maxjobs=100"|qsub -N "mkfastq_$mkfastqID"  -l h_vmem=6G,mem_free=6G
+  command="cellranger mkfastq --id=$mkfastqID --run=$bcl --samplesheet=$samplesheet --localmem=64 --localcores=8"
 fi
+
+echo "$command"
+echo "$command" |qsub -N "mkfastq_$mkfastqID"  -l h_vmem=64G,mem_free=64G -pe ncpus 8
 
 #check for mkfastq completion
 mkfastq_complete="$mkfastqID/_vdrkill"
@@ -97,25 +98,36 @@ done <<< "$lines"
 fi
 
 #run seurat
+#
+curr_seurat_job=-1
+
 while [ ${#count_outputs[@]} -gt 0 ]; do
+  
+  #check if any count job have finished running
   for count_output in "${!count_outputs[@]}"; do
     echo "$count_output ${test[$key]}"
     if [ -f "$bcl/$count_output/_vdrkill" ]; then
       barcodes="$bcl/$count_output/outs/filtered_gene_bc_matrices/*/barcodes.tsv"
       num_cells=$(wc -l $barcodes|awk '{print $1}')
-      mem=$(( $num_cells/1000 + 10 )) # 1gb for every thousand cells (floored) plus 10gb
+      #mem=$(( $num_cells/1000 + 10 )) # 1gb for every thousand cells (floored) plus 10gb
+      mem=30 #seems to work for <10k cells
       
-      #submit standard seurat script
+      #submit standard seurat script for the finished count output
       command="$Rscript $seurat_dir/Seurat_main.R $bcl/$count_output $bcl/$count_output/outs $seurat_dir"
       output="$bcl/$progress/seurat_${count_output}.output.txt"
       error="$bcl/$progress/seurat_${count_output}.error.txt"
-      echo $output
-      echo $error 
       echo "$command"
-      echo "$command"|qsub -N "seurat_${count_output}" -l h_vmem=${mem}G,mem_free=${mem}G -o $output -e $error
-     
-      # remove the current count output name from array
+      curr_seurat_job=$(echo "$command"|qsub -N "seurat_${count_output}" -l h_vmem=${mem}G,mem_free=${mem}G -o $output -e $error|awk '{print $3}')
+      echo $curr_seurat_job
+
+      # remove the finished count output name from array
       unset count_outputs[$count_output]
+      
+      #wait the current seurat job to finish running
+      #sleep 5 #in case job does not show up immediately
+      #while [ $(qstat|awk '{print $1}'|grep $curr_seurat_job|wc -l) -gt 0 ]; do 
+      #  sleep 30
+      #done
     fi
   done
   sleep 10
