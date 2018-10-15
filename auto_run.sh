@@ -29,31 +29,59 @@ export SGE_CLUSTER_NAME=brclogin1.cm.cluster
 export PATH=$PATH:/brcwork/sequence/10x_data/BernieWorkingDirectory/auto_run/bin #contains pandoc
 Rscript="/brcwork/bioinf/tools/R/R-3.4.3/bin/Rscript"
 
-#run mkfastq
+#check samplesheet format
 col_names=$(grep -A 1 '\[Data]' $samplesheet|tail -1)
 first_col=$(echo $col_names| awk -F ',' '{print $1}')
 
-if [ $first_col = Lane ]; then
-  command="cellranger mkfastq --id=$mkfastqID --run=$bcl --samplesheet=$samplesheet --localmem=64 --localcores=8 --lanes=1,2,3,4"
-else
-  command="cellranger mkfastq --id=$mkfastqID --run=$bcl --samplesheet=$samplesheet --localmem=64 --localcores=8"
-fi
+#run mkfastq
+curr_mkfastq_job=-1
+attempt=0
 
-echo "$command"
-echo "$command" |qsub -N "mkfastq_$mkfastqID"  -l h_vmem=64G,mem_free=64G -pe ncpus 8
-
-#check for mkfastq completion
-mkfastq_complete="$mkfastqID/_vdrkill"
 while true; do
-  if [ -f $mkfastq_complete ]; then
-    echo "[$(date)] mkfastq complete"
+  
+  #start new attempt of mkfastq
+  attempt=$(( $attempt+1 ))
+  mkfastqID="${1}_$attempt"  
+  
+  if [ $first_col = Lane ]; then
+    command="cellranger mkfastq --id=$mkfastqID --run=$bcl --samplesheet=$samplesheet --localmem=64 --localcores=8 --lanes=1,2,3,4"
+  else
+    command="cellranger mkfastq --id=$mkfastqID --run=$bcl --samplesheet=$samplesheet --localmem=64 --localcores=8"
+  fi
+  
+  echo "[$(date)] $command"
+  curr_mkfastq_job=$(echo "$command" |qsub -N "mkfastq_$mkfastqID"  -l h_vmem=8G,mem_free=64G -pe ncpus 8|awk '{print $3}')
+  echo "[$(date)] Submitted mkfastq attempt $attempt; job id = $curr_mkfastq_job"
+
+  #keep checking if current attempt is complete/stuck
+  while [ $(qstat|awk '{print $1}'|grep "^$curr_mkfastq_job"|wc -l) -gt 0 ]; do
+    
+    #kill job if stuck (if there are warning messeages in BCL2FASTQ step)
+    err_file="$bcl/$mkfastqID/MAKE_FASTQS_CS/MAKE_FASTQS/BCL2FASTQ_WITH_SAMPLESHEET/fork0/chnk0-*/_stderr"
+    if [ -f $err_file ]; then
+      
+      num_warning=$(grep "^WARNING:" $err_file|wc -l)
+      if [ $num_warning -gt 0 ]; then
+        echo "[$(date)] mkfastq attempt $attempt failed"
+        qdel $curr_mkfastq_job
+        break        
+      fi 
+    fi
+    
+    echo "[$(date)] mkfastq attempt $attempt running"
+    sleep 20
+  done
+  
+  #check if mkfastq is succesful
+  if [ -f "$bcl/$mkfastqID/_vdrkill" ]; then
+    echo "[$(date)] mkfastq $attempt complete"
     sleep 30
     break
-  else
-    echo "[$(date)] Running mkfastq"
   fi
-  sleep 5
+
 done
+
+exit
 
 #directory of count job output
 progress="count_progress"
@@ -71,30 +99,32 @@ if [ $first_col = Lane ]; then
   curr=$(pwd)
   fastq_path="$curr/$mkfastqID/outs/fastq_path/"
   countID=$fastq
-  echo "cellranger count --id=$countID --transcriptome=$countGenome --fastqs=$fastq_path --jobmode=sge --maxjobs=100"
+  command="cellranger count --id=$countID --transcriptome=$countGenome --fastqs=$fastq_path --jobmode=sge --maxjobs=100"
+  echo "[$(date)] $command"
   output="$curr/$progress/$countID.output.txt"
   error="$curr/$progress/$countID.error.txt"
-  echo "cellranger count --id=$countID --transcriptome=$countGenome --fastqs=$fastq_path --jobmode=sge --maxjobs=100"|qsub -N "count_$countID" -l h_vmem=6G,mem_free=6G -o $output -e $error
+  echo "$command"|qsub -N "count_$countID" -l h_vmem=6G,mem_free=6G -o $output -e $error
   
   count_outputs[$countID]="running"
 else
 
-lines=$(grep -A $(wc -l $samplesheet|awk '{print $1}') '\[Data]' $samplesheet|tail -n+3)
-
-while read line; do
-  line=$(echo "$line"|tr -d '\r')
-  fastq=$(echo $line|awk -F ',' '{print $1}')
-  project=$(echo $line|awk -F ',' '{print $7}')
-  countGenome=$(echo $line|awk -F ',' '{print $8}')
-  curr=$(pwd)
-  fastq_path="$curr/$mkfastqID/outs/fastq_path/$project/$fastq"
-  countID="${project}__${fastq}"
-  echo "cellranger count --id=$countID --transcriptome=$countGenome --fastqs=$fastq_path --jobmode=sge --maxjobs=100"
-  output="$curr/$progress/$countID.output.txt"
-  error="$curr/$progress/$countID.error.txt"
-  echo "cellranger count --id=$countID --transcriptome=$countGenome --fastqs=$fastq_path --jobmode=sge --maxjobs=100"|qsub -N "count_$countID" -l h_vmem=6G,mem_free=6G -o $output -e $error
-  count_outputs[$countID]="running"
-done <<< "$lines"
+  lines=$(grep -A $(wc -l $samplesheet|awk '{print $1}') '\[Data]' $samplesheet|tail -n+3)
+  
+  while read line; do
+    line=$(echo "$line"|tr -d '\r')
+    fastq=$(echo $line|awk -F ',' '{print $1}')
+    project=$(echo $line|awk -F ',' '{print $7}')
+    countGenome=$(echo $line|awk -F ',' '{print $8}')
+    curr=$(pwd)
+    fastq_path="$curr/$mkfastqID/outs/fastq_path/$project/$fastq"
+    countID="${project}__${fastq}"
+    command="cellranger count --id=$countID --transcriptome=$countGenome --fastqs=$fastq_path --jobmode=sge --maxjobs=100"
+    echo "[$(date)] $command"
+    output="$curr/$progress/$countID.output.txt"
+    error="$curr/$progress/$countID.error.txt"
+    echo "$command"|qsub -N "count_$countID" -l h_vmem=6G,mem_free=6G -o $output -e $error
+    count_outputs[$countID]="running"
+  done <<< "$lines"
 fi
 
 #run seurat
@@ -116,9 +146,9 @@ while [ ${#count_outputs[@]} -gt 0 ]; do
       command="$Rscript $seurat_dir/Seurat_main.R $bcl/$count_output $bcl/$count_output/outs $seurat_dir"
       output="$bcl/$progress/seurat_${count_output}.output.txt"
       error="$bcl/$progress/seurat_${count_output}.error.txt"
-      echo "$command"
+      echo "[$(date)] $command"
       curr_seurat_job=$(echo "$command"|qsub -N "seurat_${count_output}" -l h_vmem=${mem}G,mem_free=${mem}G -o $output -e $error|awk '{print $3}')
-      echo $curr_seurat_job
+      echo "[$(date)] Submitted seurat analysis job for $count_outputs; job id = $curr_seurat_job"
 
       # remove the finished count output name from array
       unset count_outputs[$count_output]
@@ -130,7 +160,7 @@ while [ ${#count_outputs[@]} -gt 0 ]; do
       #done
     fi
   done
-  sleep 10
+  sleep 20
 done
 
 echo "DONE"
