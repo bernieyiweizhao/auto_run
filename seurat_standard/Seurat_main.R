@@ -1,5 +1,7 @@
 library(rmarkdown)
 
+Sys.setenv("RSTUDIO_PANDOC"="/brcwork/sequence/10x_data/BernieWorkingDirectory/auto_run/bin/")
+
 # Set file directories
 args <- commandArgs(trailingOnly = T)
 args[1] <- normalizePath(args[1])
@@ -14,7 +16,8 @@ dir.create(output_dir)
 output_file <- sprintf("%s/seurat_analysis_results.html", output_dir)
 rmd_path <- sprintf("%s/Seurat_main.Rmd", seurat_dir)
 
-intermediate_dir <- output_dir
+intermediates_dir <- output_dir #for .md files
 
-rmarkdown::render(input = rmd_path, output_dir = output_dir, output_file = output_file, intermediate_dir = intermediate_dir)
+rmarkdown::render(input = rmd_path, output_dir = output_dir, output_file = output_file, intermediates_dir = intermediates_dir, clean = T)
+
 

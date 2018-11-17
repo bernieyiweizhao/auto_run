@@ -1,0 +1,278 @@
+---
+title: "Monocle Analysis Results"
+fontsize: 50pt
+output: 
+  html_document:
+    theme: united
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,warning = FALSE,results = 'hide', message = FALSE, cache = F)
+```
+
+```{r}
+# input_dir <- "C:/Users/Yiwei Zhao/Desktop/DN88DF"
+# output_dir <- "C:/Users/Yiwei Zhao/Desktop/DN88DF/monocle_analysis_results"
+# monocle_dir <- "C:/Users/Yiwei Zhao/Desktop/BRC/tools/meta/monocle_standard"
+```
+
+```{r Initialization, results='hide'}
+source(sprintf("%s/visrutils.R", monocle_dir))
+
+visr.app.start("Monocle")
+
+source(sprintf("%s/Utils.R",monocle_dir))
+source(sprintf("%s/Monocle_IO.R",monocle_dir))
+source(sprintf("%s/Monocle_steps.R",monocle_dir))
+source(sprintf("%s/Monocle_filter.R",monocle_dir))
+source(sprintf("%s/Monocle_dim_reduction.R",monocle_dir))
+source(sprintf("%s/Monocle_cluster_cells.R",monocle_dir))
+source(sprintf("%s/Monocle_DE.R",monocle_dir))
+source(sprintf("%s/Monocle_construct_trajectories.R",monocle_dir))
+source(sprintf("%s/Monocle_pseudotime_genes.R",monocle_dir))
+source(sprintf("%s/Monocle_analyze_branches.R",monocle_dir))
+source(sprintf("%s/Monocle_additional.R",monocle_dir))
+
+visr.app.end(printjson = F, writefile = F)
+
+visr.applyParameters()
+
+visr.var.add_title_pages <- F
+
+```
+
+```{r Reset Paremeters}
+##########################
+# Set parameters
+
+#I/O
+visr.param.input_type <- "10X single cell dataset"
+visr.param.data_dir_10x <- input_dir
+visr.param.output_dir <- output_dir
+visr.param.create_subdir <- F
+
+
+#Options
+visr.param.enable_filtering <- T
+visr.param.enable_dim_red <- T
+visr.param.enable_clustering <- T
+visr.param.enable_de_analysis <- T
+visr.param.enable_trajectories <- T
+
+#additional
+visr.param.num_cores <- 8 #change as needed
+```
+
+```{r Load packages, results = 'hide', message=FALSE, cache=F}
+##########################
+
+# workflow based on:
+# http://cole-trapnell-lab.github.io/monocle-release/docs/
+# https://davetang.org/muse/2017/10/01/getting-started-monocle/
+
+visr.library("ggplot2")
+visr.biocLite("pheatmap")
+visr.biocLite("DDRTree")
+# used to order genes
+visr.library("dplyr")
+try(visr.biocLite("monocle"))
+visr.libraryGithub("monocle", "cole-trapnell-lab/monocle-release") # https://github.com/cole-trapnell-lab/monocle-release/issues/118
+
+#  Preparing output directory
+output_dir <- prepare_output()
+
+#  
+```
+
+```{r plot temp figures}
+plot_figures <- function(chnk_name,id){
+  figure <- sprintf("%s/Monocle_main_files/figure-html/%s-%d.png", monocle_dir, chnk_name,id)
+  cat("![](",figure,")")
+}
+```
+
+
+## Introduction
+
+This report shows the results of single cell developmental trajectory construction using **Monocle**. The the script used to generate the report utilizes the script of the **Monocle** app in **VisR**.
+
+The input data for this report can be found in ``r input_dir``.
+
+For more details on **Monocle** R package, see <http://cole-trapnell-lab.github.io/monocle-release/docs/>.
+
+For more details on **VisR** platform and **Monocle** app, see <https://visrsoftware.github.io/>.
+
+For addtional questions on the report, output tables or VisR, please contact Bernie Zhao (bernieyw@brc.ubc.ca).
+
+```{r Load Data, results='hide', message=FALSE}
+# Loading input
+monocle_app_object <- load_input()
+```
+
+## Data Preprocessing
+
+### Filter Cells
+
+Cells with extremely low/high total expressions are filtered out. The red dotted lines in each figure below represent the thresholds for filtering cells.
+
+```{r Filter Cells, eval = T}
+# Filtering: remove low (e.g. dead cells or empty wells) and high (e.g. doublets: made from two or more cells accidentally)
+
+monocle_app_object <- perform_filter_by_distribution(monocle_app_object)
+
+```
+
+### Subsetting Genes
+
+
+```{r Filter Genes 1, eval = T, include = F}
+monocle_app_object <- perform_detect_genes(monocle_app_object)
+```
+
+There are `r nrow(dispersionTable(monocle_app_object$cds))` genes that are expressed in more than 1 cells (including the cells that are removed in the previous step). The dispersions of these genes are computed, as shown in the second figure below. These genes are further subsetted based on their mean expression levels.
+
+```{r Filter Genes 2, eval = T}
+monocle_app_object <- perform_subsetting_genes(monocle_app_object)
+```
+
+
+```{r Validate clustering, eval = T}
+# Here is the earliest place the clustering parameters could be validated
+num_cells <- ncol(monocle_app_object$cds)
+if (visr.param.enable_clustering && num_cells > 5e+05 && visr.param.cluster_method != CLUSTER_METHOD_LOUVAIN) {
+  visr.message("Number of cells in your data is larger than 50k. clusterCells with 'densityPeak' or 'DDRTree' may crash. Please try to use the 'Louvain' clustering algorithm!", type = "warning")
+}
+```
+
+## Dimensionality Reduction
+By default runs t-SNE on the top `r visr.param.reduce_num_dim` PCs out of the 100 that are initially computed. The second plot below plots the cells on the t-SNE projections.
+
+```{r Dim Reduction, eval = T, results = 'markup', message=T}
+print("running dim reduction")
+monocle_app_object <- perform_dim_reduction(monocle_app_object)
+```
+
+## Clustering Cells
+Runs density peaks clustering using t-SNE results. The selection of density peaks and the results of clustering are shown below.
+
+```{r Clustering, eval = T}
+monocle_app_object <- perform_clustering(monocle_app_object)
+```
+
+## Differential Expression
+The plot below shows the top `r visr.param.num_plot_genes_jitter` genes that are differentially expressed across all clusters. The complete list of DE genes can be found in the output file `de_genes_all_clusters.txt`.
+
+```{r DE, eval = T}
+monocle_app_object <- perform_de_analysis(monocle_app_object, output_dir)
+
+status_ok <- monocle_app_object$de_genes$status == "OK"
+status_ok[is.na(status_ok)] <- FALSE
+de_table <- monocle_app_object$de_genes[status_ok,]
+write.table(de_table, sprintf("%s/de_genes_all_clusters.txt", output_dir), col.names = T,
+            row.names = F, quote = F, sep = '\t')
+
+```
+
+## Single Cell Trajectory
+
+
+### Construction of the trajectory{.tabset}
+
+```{r trajectory, eval = T, include=F}
+# monocle_app_object <- readRDS("monocle.rds")
+monocle_app_object <- perform_construct_trajectories(monocle_app_object)
+```
+
+The genes with q-values < `r visr.param.trajectory_max_qval` are in the differential expression results are considered as significant. If there are more than `r visr.param.trajectory_num_genes` significant genes, the top `r visr.param.trajectory_num_genes` genes are used for the construction of the trajectory. 
+
+```{r plot trajectory 1, results = 'asis'}
+
+chnk_name <- "trajectory"
+
+plot_figures(chnk_name, 1)
+plot_figures(chnk_name, 2)
+```
+
+A developmental trajectory is inferred. Cells are colored by their pseudotime, states, and cluster ids.
+
+#### Pseudotime
+```{r plot trajectory 2, results = 'asis'}
+plot_figures(chnk_name, 3)
+```
+
+#### State
+```{r plot trajectory 3, results = 'asis'}
+plot_figures(chnk_name, 4)
+```
+
+#### Cluster
+```{r plot trajectory 4, results = 'asis'}
+plot_figures(chnk_name, 5)
+```
+
+
+### DE Genes across Pseudotime
+
+```{r DE pseudotime, eval = T, include=F}
+monocle_app_object <- perform_pseudotime_genes(monocle_app_object)
+```
+
+The figure below shows the expression patterns of the top 6 genes that are differentially expressed across pseudotime.
+
+```{r plot DE pseudotime 1, eval = T, results = 'asis'}
+chnk_name <- "DE pseudotime"
+plot_figures(chnk_name, 1)
+```
+
+The heatmap below groups the top `r visr.param.cluster_genes_pseudo_count` DE genes into `r visr.param.num_pseudo_gene_clusters` clusters.
+
+```{r plot DE pseudotime 2, eval = T, results = 'asis'}
+plot_figures(chnk_name, 2)
+```
+
+### Branch Analysis{.tabset}
+
+```{r Branch, eval = F, include=F}
+# monocle_app_object <- readRDS("monocle.rds")
+monocle_app_object <- perform_analyze_branches(monocle_app_object)
+```
+
+The heatmap below shows genes that are differentially expressed between the 2 lineages after branch point `r visr.param.trajectory_branch_point`. Genes are grouped into `r visr.param.branched_heatmap_num_clusters` clusters.
+
+```{r plot Branch 1, results='asis', eval = T}
+chnk_name <- "Branch"
+plot_figures(chnk_name, 1)
+```
+
+
+The plots below shows the expression patterns of the top `r visr.param.num_branch_genes_to_plot` genes in each cluster across pseudotime for each lineage.
+
+```{r plot Branch 2, results='asis', eval = T}
+for (i in 1:visr.param.branched_heatmap_num_clusters){
+  cat( paste("#### Cluster", i, '\n' ) ) 
+  plot_figures(chnk_name,i+1)
+  cat(' \n \n')
+}
+```
+
+## Output Files
+```{r}
+# finalize_output(output_dir, monocle_app_object) #doesn't have plot.pdf
+
+cds_dims <- data.frame(t(monocle::reducedDimA(monocle_app_object$cds)))
+colnames(cds_dims) <- c("Component1", "Component2")
+cell_table <- cbind(pData(monocle_app_object$cds), cds_dims)
+visr.writeDataTable(cell_table, paste0(output_dir, "/cells.txt"))
+
+visr.writeDataTable(monocle_app_object$disp_table, paste0(output_dir, "/genes_dispersion.txt"))
+
+monocle_app_object$params <- visr.getParams()
+saveRDS(monocle_app_object, file = paste0(output_dir, "/monocle_app_object.RDS"))
+```
+* `monocle_analysis_results.html`: A report containing data summary and output plots
+* `monocle_app_object.RDS`: Monocle app object that can be loaded to **VisR** or R scripts for customized analysis
+* `genes_dispersion.txt`: Mean expression and dispersion of each gene
+* `cells.txt`: Analysis results related to each cell
+* `de_genes_all_clusters.txt`: List of genes that are differentially expressed across all clusters

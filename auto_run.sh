@@ -18,12 +18,12 @@ while true; do
   else
     echo "[$(date)] Still Running"
   fi
-  sleep 5
+  sleep 30m
 done
 
 #set environment variables
-export PATH=$PATH:/brcwork/bioinf/tools/bcl2fastq-2.20/bin
-export PATH=$PATH:/brcwork/sequence/cellranger-2.2.0
+export PATH=/brcwork/bioinf/tools/bcl2fastq-2.20/bin:$PATH
+export PATH=/brcwork/sequence/cellranger-2.2.0:$PATH
 export SGE_CLUSTER_NAME=brclogin1.cm.cluster
 
 export PATH=$PATH:/brcwork/sequence/10x_data/BernieWorkingDirectory/auto_run/bin #contains pandoc
@@ -53,14 +53,13 @@ while true; do
   curr_mkfastq_job=$(echo "$command" |qsub -N "mkfastq_$mkfastqID"  -l h_vmem=8G,mem_free=64G -pe ncpus 8|awk '{print $3}')
   echo "[$(date)] Submitted mkfastq attempt $attempt; job id = $curr_mkfastq_job"
 
-  #keep checking if current attempt is complete/stuck
+  #keep checking if current attempt is complete/stuck (mkfastq would sometimes get stuck in the BCL2FASTQ step; a re-run would usually work)
   while [ $(qstat|awk '{print $1}'|grep "^$curr_mkfastq_job"|wc -l) -gt 0 ]; do
     
     #kill job if stuck (if there are warning messeages in BCL2FASTQ step)
     err_file="$bcl/$mkfastqID/MAKE_FASTQS_CS/MAKE_FASTQS/BCL2FASTQ_WITH_SAMPLESHEET/fork0/chnk0-*/_stderr"
     if [ -f $err_file ]; then
-      
-      num_warning=$(grep "^WARNING:" $err_file|wc -l)
+      num_warning=$(grep "WARNING:" $err_file|wc -l)
       if [ $num_warning -gt 0 ]; then
         echo "[$(date)] mkfastq attempt $attempt failed"
         qdel $curr_mkfastq_job
@@ -69,19 +68,17 @@ while true; do
     fi
     
     echo "[$(date)] mkfastq attempt $attempt running"
-    sleep 20
+    sleep 3m
   done
   
   #check if mkfastq is succesful
   if [ -f "$bcl/$mkfastqID/_vdrkill" ]; then
-    echo "[$(date)] mkfastq $attempt complete"
+    echo "[$(date)] mkfastq attempt $attempt complete"
     sleep 30
     break
   fi
 
 done
-
-exit
 
 #directory of count job output
 progress="count_progress"
@@ -95,10 +92,11 @@ if [ $first_col = Lane ]; then
 
   line=$(grep -A 2 '\[Data]' $samplesheet|tail -1|tr -d '\r')
   fastq=$(echo $line|awk -F ',' '{print $2}')
+  project=$(echo $line|awk -F ',' '{print $8}')
   countGenome=$(echo $line|awk -F ',' '{print $9}')
   curr=$(pwd)
   fastq_path="$curr/$mkfastqID/outs/fastq_path/"
-  countID=$fastq
+  countID="${project}__${fastq}"
   command="cellranger count --id=$countID --transcriptome=$countGenome --fastqs=$fastq_path --jobmode=sge --maxjobs=100"
   echo "[$(date)] $command"
   output="$curr/$progress/$countID.output.txt"
@@ -134,9 +132,11 @@ curr_seurat_job=-1
 while [ ${#count_outputs[@]} -gt 0 ]; do
   
   #check if any count job have finished running
+  echo "[$(date)] Count job running: $(echo ${!count_outputs[@]} |awk 'BEGIN {OFS=", "}{$1=$1}1')"
   for count_output in "${!count_outputs[@]}"; do
-    echo "$count_output ${test[$key]}"
     if [ -f "$bcl/$count_output/_vdrkill" ]; then
+      echo "[$(date)] Count job for $count_output complete"
+
       barcodes="$bcl/$count_output/outs/filtered_gene_bc_matrices/*/barcodes.tsv"
       num_cells=$(wc -l $barcodes|awk '{print $1}')
       #mem=$(( $num_cells/1000 + 10 )) # 1gb for every thousand cells (floored) plus 10gb
@@ -148,7 +148,7 @@ while [ ${#count_outputs[@]} -gt 0 ]; do
       error="$bcl/$progress/seurat_${count_output}.error.txt"
       echo "[$(date)] $command"
       curr_seurat_job=$(echo "$command"|qsub -N "seurat_${count_output}" -l h_vmem=${mem}G,mem_free=${mem}G -o $output -e $error|awk '{print $3}')
-      echo "[$(date)] Submitted seurat analysis job for $count_outputs; job id = $curr_seurat_job"
+      echo "[$(date)] Submitted seurat analysis job for $count_output; job id = $curr_seurat_job"
 
       # remove the finished count output name from array
       unset count_outputs[$count_output]
@@ -160,7 +160,7 @@ while [ ${#count_outputs[@]} -gt 0 ]; do
       #done
     fi
   done
-  sleep 20
+  sleep 10m
 done
 
 echo "DONE"
