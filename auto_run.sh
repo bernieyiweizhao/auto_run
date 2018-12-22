@@ -9,6 +9,7 @@ samplesheet=$2 #name of the sample sheet file
 bcl=$(pwd)
 RTAcomplete="RTAComplete.txt"
 seurat_dir="/brcwork/sequence/10x_data/BernieWorkingDirectory/auto_run/seurat_standard"
+monocle_dir="/brcwork/sequence/10x_data/BernieWorkingDirectory/auto_run/monocle_standard"
 
 #check for sequencing run completion every 30 minutes
 while true; do
@@ -36,11 +37,18 @@ first_col=$(echo $col_names| awk -F ',' '{print $1}')
 #run mkfastq
 curr_mkfastq_job=-1
 attempt=0
+max_attempt=5
 
 while true; do
   
   #start new attempt of mkfastq
   attempt=$(( $attempt+1 ))
+
+  if [ $attempt -gt $max_attempt ]; then
+    echo "[$(date)] Too many attempts"
+    exit
+  fi
+
   mkfastqID="${1}_$attempt"  
   
   if [ $first_col = Lane ]; then
@@ -125,7 +133,7 @@ else
   done <<< "$lines"
 fi
 
-#run seurat
+#run seurat/monocle
 #
 curr_seurat_job=-1
 
@@ -139,16 +147,26 @@ while [ ${#count_outputs[@]} -gt 0 ]; do
 
       barcodes="$bcl/$count_output/outs/filtered_gene_bc_matrices/*/barcodes.tsv"
       num_cells=$(wc -l $barcodes|awk '{print $1}')
-      #mem=$(( $num_cells/1000 + 10 )) # 1gb for every thousand cells (floored) plus 10gb
-      mem=30 #seems to work for <10k cells
-      
+      #mem_seurat=$(( $num_cells/1000 + 10 )) # 1gb for every thousand cells (floored) plus 10gb
+      mem_seurat=30 #seems to work for <10k cells
+      mem_monocle=8 #need to change
+      num_core_monocle=4 #need to change  
+   
       #submit standard seurat script for the finished count output
       command="$Rscript $seurat_dir/Seurat_main.R $bcl/$count_output $bcl/$count_output/outs $seurat_dir"
       output="$bcl/$progress/seurat_${count_output}.output.txt"
       error="$bcl/$progress/seurat_${count_output}.error.txt"
       echo "[$(date)] $command"
-      curr_seurat_job=$(echo "$command"|qsub -N "seurat_${count_output}" -l h_vmem=${mem}G,mem_free=${mem}G -o $output -e $error|awk '{print $3}')
+      curr_seurat_job=$(echo "$command"|qsub -N "seurat_${count_output}" -l h_vmem=${mem_seurat}G,mem_free=${mem_seurat}G -o $output -e $error|awk '{print $3}')
       echo "[$(date)] Submitted seurat analysis job for $count_output; job id = $curr_seurat_job"
+ 
+      #submit standard monocle script for the finished count output
+      command="$Rscript $monocle_dir/Monocle_main.R $bcl/$count_output $bcl/$count_output/outs $monocle_dir"
+      output="$bcl/$progress/monocle_${count_output}.output.txt"
+      error="$bcl/$progress/monocle_${count_output}.error.txt"
+      echo "[$(date)] $command"
+      curr_monocle_job=$(echo "$command"|qsub -N "monocle_${count_output}" -l h_vmem=${mem_monocle}G,mem_free=$(( $mem_monocle*$num_core_monocle ))G -pe ncpus $num_core_monocle -o $output -e $error|awk '{print $3}')
+      echo "[$(date)] Submitted monocle analysis job for $count_output; job id = $curr_monocle_job"
 
       # remove the finished count output name from array
       unset count_outputs[$count_output]

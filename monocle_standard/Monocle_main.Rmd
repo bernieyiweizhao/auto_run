@@ -62,7 +62,7 @@ visr.param.enable_de_analysis <- T
 visr.param.enable_trajectories <- T
 
 #additional
-visr.param.num_cores <- 8 #change as needed
+visr.param.num_cores <- 4 #change as needed
 ```
 
 ```{r Load packages, results = 'hide', message=FALSE, cache=F}
@@ -81,14 +81,15 @@ try(visr.biocLite("monocle"))
 visr.libraryGithub("monocle", "cole-trapnell-lab/monocle-release") # https://github.com/cole-trapnell-lab/monocle-release/issues/118
 
 #  Preparing output directory
-output_dir <- prepare_output()
+# output_dir <- prepare_output()
 
 #  
 ```
 
 ```{r plot temp figures}
 plot_figures <- function(chnk_name,id){
-  figure <- sprintf("%s/Monocle_main_files/figure-html/%s-%d.png", monocle_dir, chnk_name,id)
+  dir_name <- tail(strsplit(intermediates_dir,split = "/")[[1]],1)  
+  figure <- sprintf("%s/%s_files/figure-html/%s-%d.png", intermediates_dir, dir_name, chnk_name,id)
   cat("![](",figure,")")
 }
 ```
@@ -149,8 +150,8 @@ if (visr.param.enable_clustering && num_cells > 5e+05 && visr.param.cluster_meth
 ## Dimensionality Reduction
 By default runs t-SNE on the top `r visr.param.reduce_num_dim` PCs out of the 100 that are initially computed. The second plot below plots the cells on the t-SNE projections.
 
-```{r Dim Reduction, eval = T, results = 'markup', message=T}
-print("running dim reduction")
+```{r Dim Reduction, eval = T, results = 'hide'}
+# print("running dim reduction")
 monocle_app_object <- perform_dim_reduction(monocle_app_object)
 ```
 
@@ -234,7 +235,7 @@ plot_figures(chnk_name, 2)
 
 ### Branch Analysis{.tabset}
 
-```{r Branch, eval = F, include=F}
+```{r Branch, eval = T, include=F}
 # monocle_app_object <- readRDS("monocle.rds")
 monocle_app_object <- perform_analyze_branches(monocle_app_object)
 ```

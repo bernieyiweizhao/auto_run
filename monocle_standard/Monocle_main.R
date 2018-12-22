@@ -16,6 +16,5 @@ output_file <- sprintf("%s/monocle_analysis_results.html", output_dir)
 rmd_path <- sprintf("%s/Monocle_main.Rmd",monocle_dir)
 
 intermediates_dir <- output_dir
-
 rmarkdown::render(input = rmd_path, output_dir = output_dir, output_file = output_file, 
-                  intermediates_dir = intermediates_dir)
+                  intermediates_dir = intermediates_dir, clean = T)
