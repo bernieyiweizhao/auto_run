@@ -1,0 +1,87 @@
+#!/bin/bash
+
+info="
+Usage: autorun run [-i mkfastqID] [-s samplesheetName] [-w rna/vdj/atac] [-c v3/v2/v1]
+"
+
+mkfastqID="SC$(date '+%y%m%d')fastqs"
+samplesheet=$(ls | grep samplesheet |head -1)
+workflow="rna"
+chemistry="v3"
+
+if [ $# == 0 ]; then
+  echo $info 
+  exit
+fi
+
+if ! [ $1 == run ]; then
+  echo "Invalid command: Missing \"run\""
+  echo $info
+  exit
+fi 
+
+shift 1
+
+while getopts "i:s:w:c:" option; do
+  case "${option}" in
+    i)
+      mkfastqID=${OPTARG}
+      ;;
+
+    s) 
+      samplesheet=${OPTARG}
+      ;;
+
+    w)
+      workflow=${OPTARG}
+      ;;
+
+    c)
+      chemistry=${OPTARG}
+      ;;
+      
+    \?) 
+      echo $info
+      exit 
+      ;;
+
+  esac
+done
+
+# check input options
+
+if  [ -z $samplesheet ] || ! [ -f $samplesheet ]; then
+  echo "Samplesheet does not exist: $samplesheet"
+  echo $info
+  exit
+fi
+
+if ! [[ $workflow =~ (rna|vdj|atac) ]]; then
+  echo "Workflow invalid: $workflow"
+  echo $info
+  exit
+fi
+
+if [ $workflow == atac ]; then
+  chemistry="v1"
+
+else #rna or vdj
+  if ! [[ $chemistry =~ (v2|v3) ]]; then
+    echo "Chemistry invalid for $workflow: $chemistry"
+    echo $info
+    exit
+  fi
+fi
+
+# print Input
+echo "Options:
+  mkfastqID=$mkfastqID
+  samplesheet=$samplesheet
+  workflow=$workflow
+  chemistry=$chemistry
+"
+
+# Run auto run script
+command="qsub /brcwork/sequence/10x_data/BernieWorkingDirectory/auto_run/auto_run_meta.sh $mkfastqID $samplesheet $workflow $chemistry"
+echo $command
+$command
