@@ -1,0 +1,102 @@
+#!/bin/bash
+
+print_info () {
+  echo "Usage:
+  Run pipeline: 
+    autorun2 run [-i mkfastqID] [-s samplesheetName] [-w rna/vdj/atac] [-c v3/v2/v1]
+  Print fastq path: 
+    autorun2 get_path [-i mkfastqID] [-s samplesheetName] [-w rna/vdj/atac] [-c v3/v2/v1]"
+}
+
+mkfastqID="SC$(date '+%y%m%d')fastqs"
+samplesheet=$(ls | grep samplesheet |head -1)
+workflow="rna"
+chemistry="v3"
+
+if [ $# == 0 ]; then
+  print_info 
+  exit
+fi
+
+action=$1
+
+if ! [[ $action =~ (run|get_path) ]]; then
+  echo "Invalid command: Missing [run/get_path]"
+  print_info
+  exit
+fi 
+
+shift 1
+
+while getopts "i:s:w:c:" option; do
+  case "${option}" in
+    i)
+      mkfastqID=${OPTARG}
+      ;;
+
+    s) 
+      samplesheet=${OPTARG}
+      ;;
+
+    w)
+      workflow=${OPTARG}
+      ;;
+
+    c)
+      chemistry=${OPTARG}
+      ;;
+      
+    \?) 
+      print_info
+      exit 
+      ;;
+
+  esac
+done
+
+# check input options
+
+if  [ -z $samplesheet ] || ! [ -f $samplesheet ]; then
+  echo "Samplesheet does not exist: $samplesheet"
+  print_info
+  exit
+fi
+
+if ! [[ $workflow =~ (rna|vdj|atac) ]]; then
+  echo "Workflow invalid: $workflow"
+  print_info
+  exit
+fi
+
+if [ $workflow == atac ]; then
+  chemistry="v1"
+
+else #rna or vdj
+  if ! [[ $chemistry =~ (v2|v3) ]]; then
+    echo "Chemistry invalid for $workflow: $chemistry"
+    print_info
+    exit
+  fi
+fi
+
+# print Input
+echo "Options:
+  mkfastqID=$mkfastqID
+  samplesheet=$samplesheet
+  workflow=$workflow
+  chemistry=$chemistry
+"
+
+# Run auto run script
+source /brcwork/sequence/10x_data/python_venv/autorun/bin/activate
+
+command="python /brcwork/sequence/10x_data/BernieWorkingDirectory/test_subprocess/autorun.py $action $mkfastqID $samplesheet $workflow $chemistry"
+
+if [ $action == get_path ]; then
+  $command
+elif [ $action == run ]; then
+  echo $command
+  echo "$command"|qsub
+fi
+
+deactivate
