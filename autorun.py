@@ -27,7 +27,8 @@ def set_cellranger_path(input):
     else: #v3
       cellranger="/brcwork/sequence/cellranger_v3/cellranger-3.0.2/cellranger"
   else: #workflow = atac
-    cellranger="/brcwork/sequence/cellranger_atac/cellranger-atac-1.1.0/cellranger-atac"
+    # cellranger="/brcwork/sequence/cellranger_atac/cellranger-atac-1.1.0/cellranger-atac"
+    cellranger="/brcwork/sequence/cellranger_atac/cellranger-atac-1.2.0/cellranger-atac"
   return cellranger
 
 def is_job_active(job_id):
@@ -69,6 +70,13 @@ def run_md5sum(Path, md5_file):
       ps = subprocess.Popen(["md5sum",file], stdout = subprocess.PIPE)
       f.write(ps.communicate()[0].decode("utf-8"))
   f.close()
+
+def remove_symlink(Path):
+  for file in pathlib.Path(Path).glob("**/*"):
+    file = str(file)
+    if os.path.islink(file):
+      os.remove(file)
+  return
 
 def check_sequencing():
 
@@ -119,6 +127,7 @@ def run_mkfastq(input,sample_info):
       if is_mkfastq_complete(mkfastqID):
         print_flush(get_time() + " mkfastq complete")
         run_md5sum(mkfastqID + "/outs/fastq_path/", input["md5_file"])
+        remove_symlink(mkfastqID)
         return True
       if is_mkfastq_error(mkfastqID):
         print_flush(get_time() + " mkfastq attempt {} failed".format(attempt))
@@ -296,6 +305,8 @@ def run_secondary(input, sample_info, count_jobs):
           progress += "\t{}: running count\n".format(sample)
         else:
           del count_jobs[sample]
+          remove_symlink(Count_ID)
+
           if input["workflow"] == "rna":
             if len(sample_info.loc[i,"Library_file"]) > 0: #Cite-seq
               v3_to_v2(Count_ID)
