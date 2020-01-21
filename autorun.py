@@ -25,7 +25,8 @@ def set_cellranger_path(input):
     if input["chemistry"] == "v2":
       cellranger="/brcwork/sequence/archived_cell_ranger_versions/cellranger-2.2.0/cellranger"
     else: #v3
-      cellranger="/brcwork/sequence/cellranger_v3/cellranger-3.0.2/cellranger"
+      # cellranger="/brcwork/sequence/cellranger_v3/cellranger-3.0.2/cellranger"
+      cellranger="/brcwork/sequence/cellranger_v3/cellranger-3.1.0/cellranger"
   else: #workflow = atac
     # cellranger="/brcwork/sequence/cellranger_atac/cellranger-atac-1.1.0/cellranger-atac"
     cellranger="/brcwork/sequence/cellranger_atac/cellranger-atac-1.2.0/cellranger-atac"
@@ -159,7 +160,7 @@ def run_trimming(input, sample_info):
     for r2_file in pathlib.Path(fastq_path).glob("**/{}*R2_001.fastq.gz".format(sample)):
       print_flush(r2_file)
       trimmed_r2_file = "{}/{}".format(trimmed_fastq_path, os.path.basename(r2_file))
-      command = ["cutadapt", "--no-indels", "-e", "0.05", "-g", "^AAGCAGTGGTATCAACGCAGAGT", "-j", "4", "-o", trimmed_r2_file, r2_file]
+      command = ["cutadapt", "--no-indels", "-e", "0.1", "-g", "^AAGCAGTGGTATCAACGCAGAGTACATGGG", "-j", "4", "-o", trimmed_r2_file, r2_file]
       job_name = "cutadapt_" + os.path.basename(r2_file).split(".")[0]
       output = "{}/{}.output.txt".format(input["log"], job_name)
       error = "{}/{}.output.txt".format(input["log"], job_name)
